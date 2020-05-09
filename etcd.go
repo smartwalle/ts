@@ -3,6 +3,7 @@ package ts
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"github.com/coreos/etcd/clientv3"
 	"github.com/smartwalle/ts/internal"
@@ -13,12 +14,18 @@ import (
 )
 
 const (
-	kSchedulerJob  = "/ts/job"
-	kSchedulerLock = "/ts/lock"
+	kETCDJob  = kPrefix + "job"
+	kETCDLock = kPrefix + "lock"
+)
+
+var (
+	ErrEmptyKey   = errors.New("empty key string")
+	ErrEmptySpec  = errors.New("empty spec string")
+	ErrEmptyValue = errors.New("empty value string")
 )
 
 type etcdScheduler struct {
-	prefix     string
+	jobPrefix  string
 	lockPrefix string
 	client     *clientv3.Client
 	parser     internal.Parser
@@ -30,8 +37,8 @@ type etcdScheduler struct {
 
 func NewETCDScheduler(prefix string, client *clientv3.Client) Scheduler {
 	var s = &etcdScheduler{}
-	s.prefix = path.Join(kSchedulerJob, "/", prefix)
-	s.lockPrefix = path.Join(kSchedulerLock, "/", prefix)
+	s.jobPrefix = path.Join(kETCDJob, "/", prefix)
+	s.lockPrefix = path.Join(kETCDLock, "/", prefix)
 	s.client = client
 	s.parser = internal.NewParser(internal.Minute | internal.Hour | internal.Dom | internal.Month | internal.Dow | internal.Descriptor)
 	s.location = time.UTC
@@ -42,13 +49,13 @@ func NewETCDScheduler(prefix string, client *clientv3.Client) Scheduler {
 }
 
 func (this *etcdScheduler) buildPath(key, value string) string {
-	return path.Join(this.prefix, key, value)
+	return path.Join(this.jobPrefix, key, value)
 }
 
 func (this *etcdScheduler) Handle(key string, handler Handler) error {
 	key = strings.TrimSpace(key)
 	if len(key) == 0 {
-		return fmt.Errorf("empty key string")
+		return ErrEmptyKey
 	}
 
 	this.mu.Lock()
@@ -65,15 +72,15 @@ func (this *etcdScheduler) Handle(key string, handler Handler) error {
 func (this *etcdScheduler) Add(key, spec, value string) error {
 	key = strings.TrimSpace(key)
 	if len(key) == 0 {
-		return fmt.Errorf("empty key string")
+		return ErrEmptyKey
 	}
 	spec = strings.TrimSpace(spec)
 	if len(spec) == 0 {
-		return fmt.Errorf("empty spec string")
+		return ErrEmptySpec
 	}
 	value = strings.TrimSpace(value)
 	if len(value) == 0 {
-		return fmt.Errorf("empty value string")
+		return ErrEmptyValue
 	}
 
 	var job = &internal.Job{}
@@ -120,11 +127,11 @@ func (this *etcdScheduler) tryAddJob(key, value string, nextTime time.Time) erro
 func (this *etcdScheduler) Remove(key, value string) error {
 	key = strings.TrimSpace(key)
 	if len(key) == 0 {
-		return fmt.Errorf("empty key string")
+		return ErrEmptyKey
 	}
 	value = strings.TrimSpace(value)
 	if len(value) == 0 {
-		return fmt.Errorf("empty value string")
+		return ErrEmptyValue
 	}
 
 	var nPath = this.buildPath(key, value)
@@ -161,11 +168,11 @@ func (this *etcdScheduler) Remove(key, value string) error {
 func (this *etcdScheduler) UpdateNextTime(key, value string, nextTime time.Time) error {
 	key = strings.TrimSpace(key)
 	if len(key) == 0 {
-		return fmt.Errorf("empty key string")
+		return ErrEmptyKey
 	}
 	value = strings.TrimSpace(value)
 	if len(value) == 0 {
-		return fmt.Errorf("empty value string")
+		return ErrEmptyValue
 	}
 
 	var nPath = this.buildPath(key, value)
@@ -203,7 +210,7 @@ func (this *etcdScheduler) UpdateNextTime(key, value string, nextTime time.Time)
 
 func (this *etcdScheduler) watch() {
 	var watcher = clientv3.NewWatcher(this.client)
-	var watchChan = watcher.Watch(context.Background(), this.prefix, clientv3.WithPrefix(), clientv3.WithPrevKV(), clientv3.WithFilterPut())
+	var watchChan = watcher.Watch(context.Background(), this.jobPrefix, clientv3.WithPrefix(), clientv3.WithPrevKV(), clientv3.WithFilterPut())
 
 	go func() {
 		for {
@@ -233,11 +240,11 @@ func (this *etcdScheduler) handleEvents(events []*clientv3.Event) {
 				continue
 			}
 
-			var currentTime = job.NextTime
+			var jobTime = job.NextTime
 			// 重新添加任务
 			this.add(job)
 
-			go this.handleJob(job, currentTime)
+			go this.handleJob(job, jobTime)
 		}
 	}
 }
@@ -258,7 +265,7 @@ func (this *etcdScheduler) tryAcquire(key string) bool {
 	return rsp.Succeeded
 }
 
-func (this *etcdScheduler) handleJob(job *internal.Job, currentTime string) {
+func (this *etcdScheduler) handleJob(job *internal.Job, jobTime string) {
 	this.mu.Lock()
 	var handler = this.handlers[job.Path]
 	this.mu.Unlock()
@@ -268,7 +275,7 @@ func (this *etcdScheduler) handleJob(job *internal.Job, currentTime string) {
 	}
 
 	// 防止重复执行
-	var lockPath = path.Join(this.lockPrefix, job.Key, job.Value, currentTime)
+	var lockPath = path.Join(this.lockPrefix, job.Key, job.Value, jobTime)
 	if this.tryAcquire(lockPath) == false {
 		return
 	}

@@ -2,7 +2,11 @@ package ts
 
 import "time"
 
-type Handler func(key, value string) error
+const (
+	kPrefix = "/ts/"
+)
+
+type Handler func(key, value string)
 
 type Scheduler interface {
 	Handle(key string, handler Handler) error
