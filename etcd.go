@@ -78,6 +78,14 @@ func (this *etcdScheduler) Handle(key string, handler Handler) error {
 }
 
 func (this *etcdScheduler) Add(key, spec, value string) error {
+	return this.addJob(key, spec, value, internal.JobTypeLoop)
+}
+
+func (this *etcdScheduler) AddOnce(key, spec, value string) error {
+	return this.addJob(key, spec, value, internal.JobTypeOnce)
+}
+
+func (this *etcdScheduler) addJob(key, spec, value string, jobType internal.JobType) error {
 	key = strings.TrimSpace(key)
 	if len(key) == 0 {
 		return ErrEmptyKey
@@ -97,13 +105,13 @@ func (this *etcdScheduler) Add(key, spec, value string) error {
 	job.FullPath = this.buildPath(key, value)
 	job.Value = value
 	job.Spec = spec
-	job.Type = 1
+	job.Type = jobType
 	job.Status = internal.JobStatusValid
 
-	return this.add(job)
+	return this.run(job)
 }
 
-func (this *etcdScheduler) add(job *internal.Job) error {
+func (this *etcdScheduler) run(job *internal.Job) error {
 	schedule, err := this.parser.Parse(job.Spec)
 	if err != nil {
 		return err
@@ -118,14 +126,14 @@ func (this *etcdScheduler) add(job *internal.Job) error {
 		return err
 	}
 
-	if err = this.tryAddJob(job.FullPath, string(jobBytes), nextTime); err != nil {
+	if err = this.tryRunJob(job.FullPath, string(jobBytes), nextTime); err != nil {
 		return err
 	}
-	logger.Printf("激活任务 [%s]-[%s] 成功，完整路径 [%s]，下次执行时间为 [%s]\n", job.Key, job.Value, job.FullPath, job.NextTime)
+	logger.Printf("激活任务 [%s]-[%s] 成功，类型 [%s]，完整路径 [%s]，下次执行时间为 [%s]\n", job.Key, job.Value, job.Type, job.FullPath, job.NextTime)
 	return nil
 }
 
-func (this *etcdScheduler) tryAddJob(key, value string, nextTime time.Time) error {
+func (this *etcdScheduler) tryRunJob(key, value string, nextTime time.Time) error {
 	grantRsp, err := this.client.Grant(context.Background(), nextTime.Unix()-time.Now().Unix())
 	if err != nil {
 		return err
@@ -256,8 +264,11 @@ func (this *etcdScheduler) handleEvents(events []*clientv3.Event) {
 			}
 
 			var jobTime = job.NextTime
+
 			// 重新添加任务
-			this.add(job)
+			if job.Type == internal.JobTypeLoop {
+				this.run(job)
+			}
 
 			go this.handleJob(job, jobTime)
 		}
