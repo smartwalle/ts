@@ -13,11 +13,6 @@ import (
 	"time"
 )
 
-const (
-	kETCDJob  = kPrefix + "job"
-	kETCDLock = kPrefix + "lock"
-)
-
 var (
 	ErrEmptyKey   = errors.New("empty key string")
 	ErrEmptySpec  = errors.New("empty spec string")
@@ -26,32 +21,34 @@ var (
 )
 
 type etcdScheduler struct {
-	jobPrefix  string
-	lockPrefix string
-	client     *clientv3.Client
-	parser     internal.Parser
-	location   *time.Location
+	key      string
+	client   *clientv3.Client
+	parser   internal.Parser
+	location *time.Location
 
 	mu       *sync.Mutex
 	handlers map[string]Handler
 }
 
-func NewETCDScheduler(prefix string, client *clientv3.Client) Scheduler {
+func NewETCDScheduler(key string, client *clientv3.Client) Scheduler {
 	var s = &etcdScheduler{}
-	s.jobPrefix = path.Join(kETCDJob, "/", prefix)
-	s.lockPrefix = path.Join(kETCDLock, "/", prefix)
+	s.key = key
 	s.client = client
 	s.parser = internal.NewParser(internal.Minute | internal.Hour | internal.Dom | internal.Month | internal.Dow | internal.Descriptor)
 	s.location = time.UTC
 	s.mu = &sync.Mutex{}
 	s.handlers = make(map[string]Handler)
 	s.watch()
-	logger.Printf("初始化 ETCDScheduler 成功，Job Prefix: [%s]，Lock Prefix: [%s] \n", s.jobPrefix, s.lockPrefix)
+	logger.Printf("初始化 ETCDScheduler 成功：%s \n", s.buildJobPath("", ""))
 	return s
 }
 
-func (this *etcdScheduler) buildPath(key, value string) string {
-	return path.Join(this.jobPrefix, key, value)
+func (this *etcdScheduler) buildJobPath(key, value string) string {
+	return path.Join(kPrefix, this.key, "job", key, value)
+}
+
+func (htis *etcdScheduler) buildLockPath(key, value, jobTime string) string {
+	return path.Join(kPrefix, htis.key, "lock", key, value, jobTime)
 }
 
 func (this *etcdScheduler) Handle(key string, handler Handler) error {
@@ -65,7 +62,7 @@ func (this *etcdScheduler) Handle(key string, handler Handler) error {
 
 	this.mu.Lock()
 	defer this.mu.Unlock()
-	var nPath = this.buildPath(key, "")
+	var nPath = this.buildJobPath(key, "")
 
 	if _, exists := this.handlers[nPath]; exists {
 		return fmt.Errorf("handler %s exists", key)
@@ -101,8 +98,8 @@ func (this *etcdScheduler) addJob(key, spec, value string, jobType internal.JobT
 
 	var job = &internal.Job{}
 	job.Key = key
-	job.Path = this.buildPath(key, "")
-	job.FullPath = this.buildPath(key, value)
+	job.Path = this.buildJobPath(key, "")
+	job.FullPath = this.buildJobPath(key, value)
 	job.Value = value
 	job.Spec = spec
 	job.Type = jobType
@@ -154,7 +151,7 @@ func (this *etcdScheduler) Remove(key, value string) error {
 		return ErrEmptyValue
 	}
 
-	var nPath = this.buildPath(key, value)
+	var nPath = this.buildJobPath(key, value)
 	var kv = clientv3.NewKV(this.client)
 
 	// 获取 job
@@ -196,7 +193,7 @@ func (this *etcdScheduler) UpdateNextTime(key, value string, nextTime time.Time)
 		return ErrEmptyValue
 	}
 
-	var nPath = this.buildPath(key, value)
+	var nPath = this.buildJobPath(key, value)
 	var kv = clientv3.NewKV(this.client)
 
 	// 获取 job
@@ -233,7 +230,7 @@ func (this *etcdScheduler) UpdateNextTime(key, value string, nextTime time.Time)
 
 func (this *etcdScheduler) watch() {
 	var watcher = clientv3.NewWatcher(this.client)
-	var watchChan = watcher.Watch(context.Background(), this.jobPrefix, clientv3.WithPrefix(), clientv3.WithPrevKV(), clientv3.WithFilterPut())
+	var watchChan = watcher.Watch(context.Background(), this.buildJobPath("", ""), clientv3.WithPrefix(), clientv3.WithPrevKV(), clientv3.WithFilterPut())
 
 	go func() {
 		for {
@@ -302,7 +299,7 @@ func (this *etcdScheduler) handleJob(job *internal.Job, jobTime string) {
 	}
 
 	// 防止重复执行
-	var lockPath = path.Join(this.lockPrefix, job.Key, job.Value, jobTime)
+	var lockPath = this.buildLockPath(job.Key, job.Value, jobTime)
 	if this.tryAcquire(lockPath) == false {
 		logger.Printf("任务 [%s]-[%s] 抢锁 [%s] 失败，执行失败 \n", job.Key, job.Value, lockPath)
 		return
