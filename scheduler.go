@@ -6,7 +6,7 @@ const (
 	kPrefix = "/ts/"
 )
 
-type Handler func(key, value string)
+type Handler func(key, value string) error
 
 type Scheduler interface {
 	Handle(key string, handler Handler) error

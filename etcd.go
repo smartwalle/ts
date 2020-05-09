@@ -22,6 +22,7 @@ var (
 	ErrEmptyKey   = errors.New("empty key string")
 	ErrEmptySpec  = errors.New("empty spec string")
 	ErrEmptyValue = errors.New("empty value string")
+	ErrNilHandler = errors.New("nil handler")
 )
 
 type etcdScheduler struct {
@@ -45,6 +46,7 @@ func NewETCDScheduler(prefix string, client *clientv3.Client) Scheduler {
 	s.mu = &sync.Mutex{}
 	s.handlers = make(map[string]Handler)
 	s.watch()
+	logger.Printf("初始化 ETCDScheduler 成功，Job Prefix: [%s]，Lock Prefix: [%s] \n", s.jobPrefix, s.lockPrefix)
 	return s
 }
 
@@ -57,6 +59,9 @@ func (this *etcdScheduler) Handle(key string, handler Handler) error {
 	if len(key) == 0 {
 		return ErrEmptyKey
 	}
+	if handler == nil {
+		return ErrNilHandler
+	}
 
 	this.mu.Lock()
 	defer this.mu.Unlock()
@@ -66,6 +71,9 @@ func (this *etcdScheduler) Handle(key string, handler Handler) error {
 		return fmt.Errorf("handler %s exists", key)
 	}
 	this.handlers[nPath] = handler
+
+	logger.Printf("添加任务 [%s] 的回调函数成功\n", key)
+
 	return nil
 }
 
@@ -110,7 +118,11 @@ func (this *etcdScheduler) add(job *internal.Job) error {
 		return err
 	}
 
-	return this.tryAddJob(job.FullPath, string(jobBytes), nextTime)
+	if err = this.tryAddJob(job.FullPath, string(jobBytes), nextTime); err != nil {
+		return err
+	}
+	logger.Printf("激活任务 [%s]-[%s] 成功，完整路径 [%s]，下次执行时间为 [%s]\n", job.Key, job.Value, job.FullPath, job.NextTime)
+	return nil
 }
 
 func (this *etcdScheduler) tryAddJob(key, value string, nextTime time.Time) error {
@@ -161,6 +173,7 @@ func (this *etcdScheduler) Remove(key, value string) error {
 		if _, err := kv.Delete(context.Background(), nPath); err != nil {
 			return err
 		}
+		logger.Printf("删除任务 [%s]-[%s] 成功 \n", key, value)
 	}
 	return nil
 }
@@ -204,6 +217,8 @@ func (this *etcdScheduler) UpdateNextTime(key, value string, nextTime time.Time)
 		if _, err = kv.Put(context.Background(), nPath, string(jobBytes), clientv3.WithLease(grantRsp.ID)); err != nil {
 			return err
 		}
+
+		logger.Printf("更新任务 [%s] 的下次执行时间为 [%s] 成功 \n", key, job.NextTime)
 	}
 	return nil
 }
@@ -271,13 +286,21 @@ func (this *etcdScheduler) handleJob(job *internal.Job, jobTime string) {
 	this.mu.Unlock()
 
 	if handler == nil {
+		logger.Printf("任务 [%s]-[%s] 回调函数为空，执行失败 \n", job.Key, job.Value)
 		return
 	}
 
 	// 防止重复执行
 	var lockPath = path.Join(this.lockPrefix, job.Key, job.Value, jobTime)
 	if this.tryAcquire(lockPath) == false {
+		logger.Printf("任务 [%s]-[%s] 抢锁 [%s] 失败，执行失败 \n", job.Key, job.Value, lockPath)
 		return
 	}
-	handler(job.Key, job.Value)
+
+	var err = handler(job.Key, job.Value)
+	if err != nil {
+		logger.Printf("执行任务 [%s]-[%s] 完成，有返回错误信息: [%v] \n", job.Key, job.Value, err)
+	} else {
+		logger.Printf("执行任务 [%s]-[%s] 完成\n", job.Key, job.Value)
+	}
 }

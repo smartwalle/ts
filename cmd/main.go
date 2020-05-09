@@ -16,11 +16,13 @@ func main() {
 
 	var s = ts.NewETCDScheduler("xx", etcdCli)
 
-	s.Handle("user", func(key, value string) {
+	s.Handle("user", func(key, value string) error {
 		fmt.Println("user", value, time.Now())
+		return nil
 	})
-	s.Handle("user/order", func(key, value string) {
+	s.Handle("user/order", func(key, value string) error {
 		fmt.Println("order", value, time.Now())
+		return nil
 	})
 
 	fmt.Println(s.Add("user", "*/1 * * * *", "1"))
