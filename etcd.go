@@ -223,7 +223,7 @@ func (this *etcdScheduler) UpdateNextTime(key, value string, nextTime time.Time)
 			return err
 		}
 
-		logger.Printf("更新任务 [%s] 的下次执行时间为 [%s] 成功 \n", key, job.NextTime)
+		logger.Printf("更新任务 [%s]-[%s] 的下次执行时间为 [%s] 成功 \n", key, value, job.NextTime)
 	}
 	return nil
 }
@@ -309,6 +309,6 @@ func (this *etcdScheduler) handleJob(job *internal.Job, jobTime string) {
 	if err != nil {
 		logger.Printf("执行任务 [%s]-[%s] 完成，有返回错误信息: [%v] \n", job.Key, job.Value, err)
 	} else {
-		logger.Printf("执行任务 [%s]-[%s] 完成\n", job.Key, job.Value)
+		logger.Printf("执行任务 [%s]-[%s] 完成 \n", job.Key, job.Value)
 	}
 }
