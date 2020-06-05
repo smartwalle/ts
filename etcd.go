@@ -23,6 +23,7 @@ var (
 type etcdScheduler struct {
 	key      string
 	client   *clientv3.Client
+	kv       clientv3.KV
 	parser   internal.Parser
 	location *time.Location
 
@@ -34,6 +35,7 @@ func NewETCDScheduler(key string, client *clientv3.Client) Scheduler {
 	var s = &etcdScheduler{}
 	s.key = key
 	s.client = client
+	s.kv = clientv3.NewKV(client)
 	s.parser = internal.NewParser(internal.Minute | internal.Hour | internal.Dom | internal.Month | internal.Dow | internal.Descriptor)
 	s.location = time.UTC
 	s.mu = &sync.Mutex{}
@@ -135,9 +137,7 @@ func (this *etcdScheduler) tryRunJob(key, value string, nextTime time.Time) erro
 	if err != nil {
 		return err
 	}
-
-	var kv = clientv3.NewKV(this.client)
-	_, err = kv.Put(context.Background(), key, value, clientv3.WithLease(grantRsp.ID))
+	_, err = this.kv.Put(context.Background(), key, value, clientv3.WithLease(grantRsp.ID))
 	return err
 }
 
@@ -152,10 +152,9 @@ func (this *etcdScheduler) Remove(key, value string) error {
 	}
 
 	var nPath = this.buildJobPath(key, value)
-	var kv = clientv3.NewKV(this.client)
 
 	// 获取 job
-	getRsp, err := kv.Get(context.Background(), nPath)
+	getRsp, err := this.kv.Get(context.Background(), nPath)
 	if err != nil {
 		return err
 	}
@@ -168,14 +167,15 @@ func (this *etcdScheduler) Remove(key, value string) error {
 		// 先将其状态调整为 无效
 		job.Status = internal.JobStatusInvalid
 
-		// 更新数据
 		jobBytes, _ := json.Marshal(job)
-		if _, err := kv.Put(context.Background(), nPath, string(jobBytes)); err != nil {
+
+		// 更新数据
+		if _, err := this.kv.Put(context.Background(), nPath, string(jobBytes)); err != nil {
 			return err
 		}
 
 		// 然后将其删除
-		if _, err := kv.Delete(context.Background(), nPath); err != nil {
+		if _, err := this.kv.Delete(context.Background(), nPath); err != nil {
 			return err
 		}
 		logger.Printf("删除任务 [%s]-[%s] 成功 \n", key, value)
@@ -194,10 +194,9 @@ func (this *etcdScheduler) UpdateNextTime(key, value string, nextTime time.Time)
 	}
 
 	var nPath = this.buildJobPath(key, value)
-	var kv = clientv3.NewKV(this.client)
 
 	// 获取 job
-	getRsp, err := kv.Get(context.Background(), nPath)
+	getRsp, err := this.kv.Get(context.Background(), nPath)
 	if err != nil {
 		return err
 	}
@@ -219,7 +218,7 @@ func (this *etcdScheduler) UpdateNextTime(key, value string, nextTime time.Time)
 		if err != nil {
 			return err
 		}
-		if _, err = kv.Put(context.Background(), nPath, string(jobBytes), clientv3.WithLease(grantRsp.ID)); err != nil {
+		if _, err = this.kv.Put(context.Background(), nPath, string(jobBytes), clientv3.WithLease(grantRsp.ID)); err != nil {
 			return err
 		}
 
