@@ -119,6 +119,7 @@ func (this *etcdScheduler) run(job *internal.Job) error {
 
 	// 更新任务下次执行时间
 	job.NextTime = nextTime.In(this.location).Format(time.RFC3339)
+	job.UpdateTime = time.Now().In(this.location).Format(time.RFC3339)
 
 	jobBytes, err := json.Marshal(job)
 	if err != nil {
@@ -208,6 +209,8 @@ func (this *etcdScheduler) UpdateNextTime(key, value string, nextTime time.Time)
 		}
 		// 更新时间
 		job.NextTime = nextTime.In(this.location).Format(time.RFC3339)
+		job.UpdateTime = time.Now().In(this.location).Format(time.RFC3339)
+
 		jobBytes, err := json.Marshal(job)
 		if err != nil {
 			return err

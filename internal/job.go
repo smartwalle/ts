@@ -22,12 +22,13 @@ const (
 )
 
 type Job struct {
-	Key      string    `json:"key"`
-	Path     string    `json:"path"`
-	FullPath string    `json:"full_path"`
-	Value    string    `json:"value"`
-	Spec     string    `json:"spec"`
-	NextTime string    `json:"next_time"`
-	Type     JobType   `json:"type"`
-	Status   JobStatus `json:"status"`
+	Key        string    `json:"key"`
+	Path       string    `json:"path"`
+	FullPath   string    `json:"full_path"`
+	Value      string    `json:"value"`
+	Spec       string    `json:"spec"`
+	NextTime   string    `json:"next_time"`
+	UpdateTime string    `json:"update_time"`
+	Type       JobType   `json:"type"`
+	Status     JobStatus `json:"status"`
 }

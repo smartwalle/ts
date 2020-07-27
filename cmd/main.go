@@ -26,7 +26,7 @@ func main() {
 	})
 
 	fmt.Println(s.Add("user", "*/1 * * * *", "1"))
-	fmt.Println(s.Add("user", "*/1 *  * * *", "2"))
+	fmt.Println(s.Add("user", "*/1 * * * *", "2"))
 	fmt.Println(s.Add("user/order", "*/1 * * * *", "1"))
 	fmt.Println(s.AddOnce("user/order", "*/1 * * * *", "2"))
 
