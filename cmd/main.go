@@ -2,8 +2,8 @@ package main
 
 import (
 	"fmt"
-	"github.com/coreos/etcd/clientv3"
 	"github.com/smartwalle/ts"
+	"go.etcd.io/etcd/client/v3"
 	"time"
 )
 
