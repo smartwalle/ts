@@ -14,14 +14,18 @@ import (
 )
 
 var (
-	ErrEmptyKey   = errors.New("empty key string")
-	ErrEmptySpec  = errors.New("empty spec string")
-	ErrEmptyValue = errors.New("empty value string")
+	ErrEmptyKey   = errors.New("empty key")
+	ErrEmptySpec  = errors.New("empty spec")
+	ErrEmptyValue = errors.New("empty value")
 	ErrNilHandler = errors.New("nil handler")
 )
 
+const (
+	kPrefix = "scheduler"
+)
+
 type etcdScheduler struct {
-	key      string
+	domain   string
 	client   *clientv3.Client
 	kv       clientv3.KV
 	parser   internal.Parser
@@ -31,9 +35,9 @@ type etcdScheduler struct {
 	handlers map[string]Handler
 }
 
-func NewETCDScheduler(key string, client *clientv3.Client) Scheduler {
+func NewScheduler(domain string, client *clientv3.Client) Scheduler {
 	var s = &etcdScheduler{}
-	s.key = key
+	s.domain = domain
 	s.client = client
 	s.kv = clientv3.NewKV(client)
 	s.parser = internal.NewParser(internal.Minute | internal.Hour | internal.Dom | internal.Month | internal.Dow | internal.Descriptor)
@@ -46,11 +50,11 @@ func NewETCDScheduler(key string, client *clientv3.Client) Scheduler {
 }
 
 func (this *etcdScheduler) buildJobPath(key, value string) string {
-	return path.Join(kPrefix, this.key, "job", key, value)
+	return path.Join("/", this.domain, kPrefix, "job", key, value)
 }
 
-func (htis *etcdScheduler) buildLockPath(key, value, jobTime string) string {
-	return path.Join(kPrefix, htis.key, "lock", key, value, jobTime)
+func (this *etcdScheduler) buildLockPath(key, value, jobTime string) string {
+	return path.Join("/", this.domain, kPrefix, "mutex", key, value, jobTime)
 }
 
 func (this *etcdScheduler) Handle(key string, handler Handler) error {

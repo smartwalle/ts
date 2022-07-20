@@ -2,10 +2,6 @@ package ts
 
 import "time"
 
-const (
-	kPrefix = "ts"
-)
-
 type Handler func(key, value string) error
 
 type Scheduler interface {
